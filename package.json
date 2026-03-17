@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node --watch index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -13,9 +14,16 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/NDSoftTechSolutionsTraining/BE_Aditya_More/issues"
   },
-  "homepage": "https://github.com/NDSoftTechSolutionsTraining/BE_Aditya_More#readme"
+  "homepage": "https://github.com/NDSoftTechSolutionsTraining/BE_Aditya_More#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "mongoose": "^9.3.0",
+    "zod": "^4.3.6"
+  }
 }
