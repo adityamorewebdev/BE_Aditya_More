@@ -8,7 +8,6 @@ function requireEnv(key) {
 }
 
 export default {
-
   PORT: parseInt(process.env.PORT || '5000', 10),
   MONGODB_URI: requireEnv('MONGODB_URI'),
   REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
@@ -18,4 +17,7 @@ export default {
   GOOGLE_CALLBACK_URL: requireEnv('GOOGLE_CALLBACK_URL'),
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
   NODE_ENV: process.env.NODE_ENV || 'development',
-};
+  JWT_SECRET: process.env.JWT_SECRET || 'dev-jwt-secret',
+  GMAIL_USER: process.env.GMAIL_USER || '',
+  GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
+}
