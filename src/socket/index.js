@@ -28,10 +28,9 @@ export function initSocket(io) {
     // Auto-join personal room for direct notifications
     socket.join(`user:${userId}`)
 
-    // ── Presence: INCR sockets counter ───────────────────────────────────
-    const socketCount = await redisClient.incr(`sockets:${userId}`)
-
-    if (socketCount === 1) {
+    // ── Presence: mark online if this is the first active socket ─────────
+    const userSockets = await io.in(`user:${userId}`).fetchSockets()
+    if (userSockets.length === 1) {
       // User just came online — broadcast to all their rooms
       await User.findByIdAndUpdate(userId, { status: 'online' })
       const rooms = await Room.find({ 'members.userId': userId }).select('_id').lean()
@@ -41,9 +40,41 @@ export function initSocket(io) {
     }
 
     // Join all user's rooms
-    const userRooms = await Room.find({ 'members.userId': userId }).select('_id').lean()
+    const userRooms = await Room.find({ 'members.userId': userId }).select('_id members.userId').lean()
     for (const room of userRooms) {
       socket.join(room._id.toString())
+    }
+
+    // Send initial presence snapshot for all members in user's rooms
+    try {
+      const memberIds = new Set()
+      for (const room of userRooms) {
+        for (const member of room.members || []) {
+          if (member.userId) {
+            memberIds.add(member.userId.toString())
+          }
+        }
+      }
+
+      if (memberIds.size > 0) {
+        const ids = Array.from(memberIds)
+        const users = await User.find({ _id: { $in: ids } })
+          .select('_id lastSeen')
+          .lean()
+
+        for (const u of users) {
+          const id = u._id.toString()
+          const sockets = await io.in(`user:${id}`).fetchSockets()
+          const isOnline = sockets.length > 0
+          socket.emit('presence:update', {
+            userId: id,
+            status: isOnline ? 'online' : 'offline',
+            lastSeen: u.lastSeen,
+          })
+        }
+      }
+    } catch (err) {
+      console.error('[Socket] presence snapshot error:', err.message)
     }
 
     // ── room:join ────────────────────────────────────────────────────────
@@ -295,13 +326,8 @@ export function initSocket(io) {
     // ── Disconnect ───────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
       console.log(`[Socket] Disconnected: ${userId}`)
-
-      const count = await redisClient.decr(`sockets:${userId}`)
-
-      if (count <= 0) {
-        // Clean up: ensure counter doesn't go negative
-        await redisClient.del(`sockets:${userId}`)
-
+      const sockets = await io.in(`user:${userId}`).fetchSockets()
+      if (sockets.length === 0) {
         // User is fully offline
         await User.findByIdAndUpdate(userId, {
           status: 'offline',
