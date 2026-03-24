@@ -242,6 +242,108 @@ export function initSocket(io) {
       }
     })
 
+    // ——— message:edit ———
+    socket.on('message:edit', async (data, ack) => {
+      try {
+        const { roomId, messageId, content } = data || {}
+        if (!roomId || !messageId || typeof content !== 'string') {
+          return ack?.({ error: 'roomId, messageId, and content are required' })
+        }
+
+        const room = await Room.findById(roomId).lean()
+        if (!room) return ack?.({ error: 'Room not found' })
+        const isMember = room.members.some((m) => m.userId.toString() === userId)
+        if (!isMember) return ack?.({ error: 'Not a member of this room' })
+
+        const message = await Message.findById(messageId)
+        if (!message) return ack?.({ error: 'Message not found' })
+        if (message.roomId.toString() !== roomId.toString()) {
+          return ack?.({ error: 'Message not in this room' })
+        }
+        if (message.senderId.toString() !== userId.toString()) {
+          return ack?.({ error: 'Only sender can edit' })
+        }
+
+        const now = Date.now()
+        const createdAt = new Date(message.createdAt).getTime()
+        if (now - createdAt > 5 * 60 * 1000) {
+          return ack?.({ error: 'Edit window expired' })
+        }
+
+        message.content = content
+        message.editedAt = new Date()
+        await message.save()
+
+        io.to(roomId.toString()).emit('message:edit', {
+          messageId: message._id,
+          roomId: roomId.toString(),
+          content: message.content,
+          editedAt: message.editedAt,
+        })
+
+        ack?.({ ok: true })
+      } catch (err) {
+        console.error('[Socket] message:edit error:', err.message)
+        ack?.({ error: 'Failed to edit message' })
+      }
+    })
+
+    // ——— message:delete ———
+    socket.on('message:delete', async (data, ack) => {
+      try {
+        const { roomId, messageId, mode } = data || {}
+        if (!roomId || !messageId || !mode) {
+          return ack?.({ error: 'roomId, messageId, and mode are required' })
+        }
+
+        const room = await Room.findById(roomId).lean()
+        if (!room) return ack?.({ error: 'Room not found' })
+        const isMember = room.members.some((m) => m.userId.toString() === userId)
+        if (!isMember) return ack?.({ error: 'Not a member of this room' })
+
+        const message = await Message.findById(messageId)
+        if (!message) return ack?.({ error: 'Message not found' })
+        if (message.roomId.toString() !== roomId.toString()) {
+          return ack?.({ error: 'Message not in this room' })
+        }
+
+        if (mode === 'all') {
+          if (message.senderId.toString() !== userId.toString()) {
+            return ack?.({ error: 'Only sender can delete for everyone' })
+          }
+
+          const now = Date.now()
+          const createdAt = new Date(message.createdAt).getTime()
+          if (now - createdAt > 5 * 60 * 1000) {
+            return ack?.({ error: 'Delete window expired' })
+          }
+
+          await Message.deleteOne({ _id: messageId })
+
+          io.to(roomId.toString()).emit('message:delete', {
+            messageId,
+            roomId: roomId.toString(),
+            mode: 'all',
+          })
+
+          return ack?.({ ok: true })
+        }
+
+        if (mode === 'me') {
+          await Message.updateOne(
+            { _id: messageId },
+            { $addToSet: { deletedFor: userId } }
+          )
+          return ack?.({ ok: true })
+        }
+
+        return ack?.({ error: 'Invalid delete mode' })
+      } catch (err) {
+        console.error('[Socket] message:delete error:', err.message)
+        ack?.({ error: 'Failed to delete message' })
+      }
+    })
+
     // ── typing:start ─────────────────────────────────────────────────────
     socket.on('typing:start', async ({ roomId }) => {
       try {
@@ -310,6 +412,7 @@ export function initSocket(io) {
           const missedMessages = await Message.find({
             roomId,
             sequenceNo: { $gt: lastSeenSeq },
+            deletedFor: { $nin: [userId] },
           })
             .sort({ sequenceNo: 1 })
             .limit(100)

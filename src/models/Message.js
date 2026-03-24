@@ -8,7 +8,9 @@ const MessageSchema = new mongoose.Schema(
     clientId:   { type: String, required: true },   // client-generated UUID for dedup
     sequenceNo: { type: Number, required: true },    // per-room ordering
     status:     { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
+    editedAt:   { type: Date },
     mentions:   [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     attachments: [
       {
         url: { type: String, required: true },

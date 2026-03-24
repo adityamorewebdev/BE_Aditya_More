@@ -245,7 +245,10 @@ router.get(
       return res.json({ success: true, messages: [], hasMore: false })
     }
 
-    const query = { roomId: req.params.id }
+    const query = {
+      roomId: req.params.id,
+      deletedFor: { $nin: [req.user._id] },
+    }
     if (before !== Infinity) {
       query.sequenceNo = { $lt: before, ...(clearedSeq > 0 ? { $gt: clearedSeq } : {}) }
     } else if (clearedSeq > 0) {
