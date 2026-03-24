@@ -94,9 +94,9 @@ export function initSocket(io) {
     // ── message:send ─────────────────────────────────────────────────────
     socket.on('message:send', async (data, ack) => {
       try {
-        const { roomId, content, clientId, mentions } = data
+        const { roomId, content, clientId, mentions, attachments } = data
 
-        if (!roomId || !content || !clientId) {
+        if (!roomId || (!content && (!attachments || attachments.length === 0)) || !clientId) {
           return ack?.({ error: 'roomId, content, and clientId are required' })
         }
 
@@ -130,6 +130,8 @@ export function initSocket(io) {
             sequenceNo,
             status: 'sent',
             mentions: mentions || [],
+            attachments: attachments || [],  // ← add this
+
           })
         } catch (dupErr) {
           if (dupErr.code === 11000) {
@@ -141,7 +143,7 @@ export function initSocket(io) {
         }
 
         // Denormalize lastMessage on room
-        room.lastMessage = { content, sentAt: message.createdAt, senderId: userId }
+        room.lastMessage = { content:content || '📎 Attachment', sentAt: message.createdAt, senderId: userId }
         await room.save()
 
         // Increment unread counters for other members
