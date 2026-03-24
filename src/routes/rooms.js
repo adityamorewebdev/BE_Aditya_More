@@ -84,6 +84,7 @@ router.post(
       userId: id,
       role: id === userId ? 'admin' : 'member',
       lastReadSeq: 0,
+      lastClearedSeq: 0,
     }))
 
     const room = await Room.create({
@@ -143,6 +144,39 @@ router.get(
   })
 )
 
+// Clear chat for current user in a room
+router.post(
+  '/:id/clear',
+  asyncHandler(async (req, res) => {
+    const room = await Room.findById(req.params.id)
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found' })
+    }
+
+    const member = room.members.find(
+      (m) => m.userId.toString() === req.user._id.toString()
+    )
+    if (!member) {
+      return res.status(403).json({ success: false, message: 'Not a member' })
+    }
+
+    const lastMsg = await Message.findOne({ roomId: req.params.id })
+      .sort({ sequenceNo: -1 })
+      .select('sequenceNo')
+      .lean()
+
+    const lastSeq = lastMsg?.sequenceNo || 0
+    member.lastClearedSeq = Math.max(member.lastClearedSeq || 0, lastSeq)
+    member.lastReadSeq = Math.max(member.lastReadSeq || 0, lastSeq)
+    await room.save()
+
+    const unreadKey = `unread:${req.user._id.toString()}:${req.params.id}`
+    await redisClient.del(unreadKey)
+
+    res.json({ success: true, clearedUpToSeq: lastSeq })
+  })
+)
+
 // ── Update room (group only) ─────────────────────────────────────────────────
 router.put(
   '/:id',
@@ -167,7 +201,7 @@ router.put(
     if (addMemberIds?.length) {
       for (const id of addMemberIds) {
         if (!room.members.some((m) => m.userId.toString() === id)) {
-          room.members.push({ userId: id, role: 'member', lastReadSeq: 0 })
+          room.members.push({ userId: id, role: 'member', lastReadSeq: 0, lastClearedSeq: 0 })
         }
       }
     }
@@ -199,12 +233,23 @@ router.get(
       return res.status(403).json({ success: false, message: 'Not a member' })
     }
 
+    const member = room.members.find(
+      (m) => m.userId.toString() === req.user._id.toString()
+    )
+    const clearedSeq = member?.lastClearedSeq || 0
+
     const before = parseInt(req.query.before, 10) || Infinity
     const limit = Math.min(parseInt(req.query.limit, 10) || 30, 50)
 
+    if (before !== Infinity && before <= clearedSeq) {
+      return res.json({ success: true, messages: [], hasMore: false })
+    }
+
     const query = { roomId: req.params.id }
     if (before !== Infinity) {
-      query.sequenceNo = { $lt: before }
+      query.sequenceNo = { $lt: before, ...(clearedSeq > 0 ? { $gt: clearedSeq } : {}) }
+    } else if (clearedSeq > 0) {
+      query.sequenceNo = { $gt: clearedSeq }
     }
 
     const messages = await Message.find(query)
