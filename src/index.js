@@ -11,6 +11,8 @@ import chatAuthRoutes from './routes/chatAuth.js'
 import roomRoutes from './routes/rooms.js'
 import userRoutes from './routes/users.js'
 import notificationRoutes from './routes/notifications.js'
+// import chatbotRoutes from './routes/chatbot.js'
+import uploadRoutes from './routes/uploads.js'
 import errorHandler from './middleware/errorHandler.js'
 import env from './config/env.js'
 import { redisClient, connectRedis } from './config/redis.js'
@@ -40,6 +42,8 @@ app.use('/api/chat/auth', chatAuthRoutes)    // chat session-based auth
 app.use('/api/rooms', roomRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/notifications', notificationRoutes)
+// app.use('/api/chatbot', chatbotRoutes)
+app.use('/api/uploads', uploadRoutes)
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' })
