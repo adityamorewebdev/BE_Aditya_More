@@ -212,11 +212,26 @@ export function initSocket(io) {
     // ── typing:start ─────────────────────────────────────────────────────
     socket.on('typing:start', async ({ roomId }) => {
       try {
+        if (!roomId) return
+
+        // Validate membership + ensure all member sockets are in the room
+        const room = await Room.findById(roomId).lean()
+        if (!room) return
+        const isMember = room.members.some((m) => m.userId.toString() === userId)
+        if (!isMember) return
+
+        for (const member of room.members) {
+          const memberSockets = await io.in(`user:${member.userId}`).fetchSockets()
+          for (const s of memberSockets) {
+            s.join(roomId.toString())
+          }
+        }
+
         await redisClient.sAdd(`typing:${roomId}`, userId)
         await redisClient.expire(`typing:${roomId}`, 5)
 
         const typingUsers = await redisClient.sMembers(`typing:${roomId}`)
-        socket.to(roomId).emit('typing:update', { roomId, typingUsers })
+        socket.to(roomId.toString()).emit('typing:update', { roomId: roomId.toString(), typingUsers })
       } catch (err) {
         console.error('[Socket] typing:start error:', err.message)
       }
@@ -225,10 +240,25 @@ export function initSocket(io) {
     // ── typing:stop ──────────────────────────────────────────────────────
     socket.on('typing:stop', async ({ roomId }) => {
       try {
+        if (!roomId) return
+
+        // Validate membership + ensure all member sockets are in the room
+        const room = await Room.findById(roomId).lean()
+        if (!room) return
+        const isMember = room.members.some((m) => m.userId.toString() === userId)
+        if (!isMember) return
+
+        for (const member of room.members) {
+          const memberSockets = await io.in(`user:${member.userId}`).fetchSockets()
+          for (const s of memberSockets) {
+            s.join(roomId.toString())
+          }
+        }
+
         await redisClient.sRem(`typing:${roomId}`, userId)
 
         const typingUsers = await redisClient.sMembers(`typing:${roomId}`)
-        socket.to(roomId).emit('typing:update', { roomId, typingUsers })
+        socket.to(roomId.toString()).emit('typing:update', { roomId: roomId.toString(), typingUsers })
       } catch (err) {
         console.error('[Socket] typing:stop error:', err.message)
       }
