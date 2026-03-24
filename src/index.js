@@ -69,7 +69,7 @@ connectRedis().then(async () => {
   const pubClient = redisClient.duplicate()
   const subClient = redisClient.duplicate()
   await Promise.all([pubClient.connect(), subClient.connect()])
-  io.adapter(createAdapter(pubClient, subClient))
+  io.adapter(createAdapter(pubClient, subClient, { requestsTimeout: 15000 }))
 
   // Initialize socket handlers
   initSocket(io)
