@@ -1,23 +1,22 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose'
 
-const userSchema = new mongoose.Schema({
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    lowercase: true,
-    trim: true,
+const UserSchema = new mongoose.Schema(
+  {
+    googleId:         { type: String, unique: true, sparse: true },
+    email:            { type: String, required: true, unique: true },
+    username:         { type: String, required: true },
+    password:         { type: String },                        // only for email/password users
+    avatarUrl:        { type: String },
+    status:           { type: String, enum: ['online', 'offline'], default: 'offline' },
+    lastSeen:         { type: Date, default: Date.now },
+    emailVerified:    { type: Boolean, default: false },
+    verifyToken:      { type: String },
+    resetToken:       { type: String },
+    resetTokenExpiry: { type: Date },
   },
-  password: {
-    type: String,
-    required: true,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
+  { timestamps: true }
+)
 
-const User = mongoose.model("User", userSchema);
+const User = mongoose.model('User', UserSchema)
 
-export default User;
+export { User }
