@@ -205,10 +205,12 @@ router.put(
     if (name) room.name = name
     if (avatarUrl) room.avatarUrl = avatarUrl
 
+    const addedMemberIds = []
     if (addMemberIds?.length) {
       for (const id of addMemberIds) {
         if (!room.members.some((m) => m.userId.toString() === id)) {
           room.members.push({ userId: id, role: 'member', isAdmin: false, lastReadSeq: 0, lastClearedSeq: 0 })
+          addedMemberIds.push(id)
         }
       }
     }
@@ -220,10 +222,58 @@ router.put(
     }
 
     await room.save()
+
+    const io = req.app.get('io')
+    if (io && addedMemberIds.length > 0) {
+      const roomIdStr = room._id.toString()
+      for (const memberId of addedMemberIds) {
+        const memberSockets = await io.in(`user:${memberId}`).fetchSockets()
+        for (const s of memberSockets) {
+          s.join(roomIdStr)
+        }
+        io.to(`user:${memberId}`).emit('room:created', room)
+      }
+    }
     res.json({ success: true, room })
   })
 )
 
+// -- Leave group (group only) ---------------------------------------------
+router.post(
+  '/:id/leave',
+  asyncHandler(async (req, res) => {
+    const room = await Room.findById(req.params.id)
+    if (!room || room.type !== 'group') {
+      return res.status(404).json({ success: false, message: 'Group not found' })
+    }
+
+    const memberId = req.user._id.toString()
+    const memberIndex = room.members.findIndex((m) => m.userId.toString() === memberId)
+    if (memberIndex === -1) {
+      return res.status(403).json({ success: false, message: 'Not a member' })
+    }
+
+    const leaving = room.members[memberIndex]
+    const isAdmin = leaving?.isAdmin || leaving?.role === 'admin'
+    if (isAdmin) {
+      const adminCount = room.members.filter((m) => m.isAdmin || m.role === 'admin').length
+      if (adminCount <= 1) {
+        return res.status(400).json({ success: false, message: 'At least one admin required' })
+      }
+    }
+
+    room.members.splice(memberIndex, 1)
+    await room.save()
+
+    const io = req.app.get('io')
+    if (io) {
+      io.to(room._id.toString()).emit('room:updated', { roomId: room._id.toString(), type: 'leave' })
+      io.to(`user:${memberId}`).emit('room:removed', { roomId: room._id.toString() })
+    }
+
+    res.json({ success: true })
+  })
+)
 // -- Remove admin (group only) -------------------------------------------
 router.post(
   '/:id/admins/remove',
@@ -367,5 +417,6 @@ router.get(
 )
 
 export default router
+
 
 
