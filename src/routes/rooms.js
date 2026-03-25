@@ -80,12 +80,17 @@ router.post(
 
     // Build members array
     const allMemberIds = [userId, ...memberIds.filter((id) => id !== userId)]
-    const members = allMemberIds.map((id) => ({
-      userId: id,
-      role: id === userId ? 'admin' : 'member',
-      lastReadSeq: 0,
-      lastClearedSeq: 0,
-    }))
+    const members = allMemberIds.map((id) => {
+      const isCreator = id === userId
+      const isGroupAdmin = type === 'group' && isCreator
+      return {
+        userId: id,
+        role: isGroupAdmin ? 'admin' : 'member',
+        isAdmin: isGroupAdmin,
+        lastReadSeq: 0,
+        lastClearedSeq: 0,
+      }
+    })
 
     const room = await Room.create({
       type,
@@ -189,7 +194,8 @@ router.put(
     const member = room.members.find(
       (m) => m.userId.toString() === req.user._id.toString()
     )
-    if (!member || member.role !== 'admin') {
+    const isAdmin = member?.isAdmin || member?.role === 'admin'
+    if (!member || !isAdmin) {
       return res.status(403).json({ success: false, message: 'Admin access required' })
     }
 
@@ -201,7 +207,7 @@ router.put(
     if (addMemberIds?.length) {
       for (const id of addMemberIds) {
         if (!room.members.some((m) => m.userId.toString() === id)) {
-          room.members.push({ userId: id, role: 'member', lastReadSeq: 0, lastClearedSeq: 0 })
+          room.members.push({ userId: id, role: 'member', isAdmin: false, lastReadSeq: 0, lastClearedSeq: 0 })
         }
       }
     }
@@ -217,6 +223,40 @@ router.put(
   })
 )
 
+// -- Promote member to admin (group only) -------------------------------
+router.post(
+  '/:id/admins',
+  asyncHandler(async (req, res) => {
+    const room = await Room.findById(req.params.id)
+    if (!room || room.type !== 'group') {
+      return res.status(404).json({ success: false, message: 'Group not found' })
+    }
+
+    const requester = room.members.find(
+      (m) => m.userId.toString() === req.user._id.toString()
+    )
+    const requesterIsAdmin = requester?.isAdmin || requester?.role === 'admin'
+    if (!requester || !requesterIsAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required' })
+    }
+
+    const { memberId } = req.body
+    if (!memberId) {
+      return res.status(400).json({ success: false, message: 'memberId required' })
+    }
+
+    const target = room.members.find((m) => m.userId.toString() === memberId.toString())
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Member not found' })
+    }
+
+    target.isAdmin = true
+    target.role = 'admin'
+
+    await room.save()
+    res.json({ success: true, room })
+  })
+)
 // ── Get room messages (cursor-based pagination) ──────────────────────────────
 router.get(
   '/:id/messages',
@@ -270,3 +310,4 @@ router.get(
 )
 
 export default router
+
