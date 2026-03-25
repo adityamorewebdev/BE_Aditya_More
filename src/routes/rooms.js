@@ -95,6 +95,7 @@ router.post(
     const room = await Room.create({
       type,
       name: type === 'group' ? name || 'New Group' : undefined,
+      createdBy: type === 'group' ? userId : undefined,
       members,
     })
 
@@ -223,6 +224,57 @@ router.put(
   })
 )
 
+// -- Remove admin (group only) -------------------------------------------
+router.post(
+  '/:id/admins/remove',
+  asyncHandler(async (req, res) => {
+    const room = await Room.findById(req.params.id)
+    if (!room || room.type !== 'group') {
+      return res.status(404).json({ success: false, message: 'Group not found' })
+    }
+
+    const requester = room.members.find(
+      (m) => m.userId.toString() === req.user._id.toString()
+    )
+    const requesterIsAdmin = requester?.isAdmin || requester?.role === 'admin'
+    if (!requester || !requesterIsAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required' })
+    }
+
+    const { memberId } = req.body
+    if (!memberId) {
+      return res.status(400).json({ success: false, message: 'memberId required' })
+    }
+
+    const target = room.members.find((m) => m.userId.toString() === memberId.toString())
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Member not found' })
+    }
+
+    const creatorId =
+      (room.createdBy ? room.createdBy.toString() : null) ||
+      (room.members?.[0]?.userId ? room.members[0].userId.toString() : null)
+    if (creatorId && creatorId === memberId.toString()) {
+      return res.status(400).json({ success: false, message: 'Creator admin cannot be removed' })
+    }
+
+    const adminCount = room.members.filter((m) => m.isAdmin || m.role === 'admin').length
+    if (adminCount <= 1) {
+      return res.status(400).json({ success: false, message: 'At least one admin required' })
+    }
+
+    target.isAdmin = false
+    target.role = 'member'
+
+    await room.save()
+
+    const io = req.app.get('io')
+    if (io) {
+      io.to(room._id.toString()).emit('room:updated', { roomId: room._id.toString(), type: 'admin' })
+    }
+    res.json({ success: true, room })
+  })
+)
 // -- Promote member to admin (group only) -------------------------------
 router.post(
   '/:id/admins',
@@ -254,6 +306,11 @@ router.post(
     target.role = 'admin'
 
     await room.save()
+
+    const io = req.app.get('io')
+    if (io) {
+      io.to(room._id.toString()).emit('room:updated', { roomId: room._id.toString(), type: 'admin' })
+    }
     res.json({ success: true, room })
   })
 )
@@ -310,4 +367,5 @@ router.get(
 )
 
 export default router
+
 

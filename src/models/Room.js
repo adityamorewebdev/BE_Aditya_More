@@ -16,6 +16,7 @@ const RoomSchema = new mongoose.Schema(
     type: { type: String, enum: ['dm', 'group'], required: true },
     name: { type: String },           // group name
     avatarUrl: { type: String },       // group avatar
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     members: [MemberSchema],
     lastMessage: {
       content:  { type: String },
