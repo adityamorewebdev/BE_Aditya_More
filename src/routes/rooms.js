@@ -224,6 +224,9 @@ router.put(
     await room.save()
 
     const io = req.app.get('io')
+    if (io) {
+      io.to(room._id.toString()).emit('room:updated', { roomId: room._id.toString(), type: 'members' })
+    }
     if (io && addedMemberIds.length > 0) {
       const roomIdStr = room._id.toString()
       for (const memberId of addedMemberIds) {
@@ -232,6 +235,13 @@ router.put(
           s.join(roomIdStr)
         }
         io.to(`user:${memberId}`).emit('room:created', room)
+        const addedUser = await User.findById(memberId).select('username').lean()
+        io.to(roomIdStr).emit('room:member', {
+          roomId: roomIdStr,
+          action: 'joined',
+          userId: memberId,
+          username: addedUser?.username || 'Someone',
+        })
       }
     }
     res.json({ success: true, room })
@@ -269,6 +279,19 @@ router.post(
     if (io) {
       io.to(room._id.toString()).emit('room:updated', { roomId: room._id.toString(), type: 'leave' })
       io.to(`user:${memberId}`).emit('room:removed', { roomId: room._id.toString() })
+
+      const memberSockets = await io.in(`user:${memberId}`).fetchSockets()
+      for (const s of memberSockets) {
+        s.leave(room._id.toString())
+      }
+
+      const leavingUser = await User.findById(memberId).select('username').lean()
+      io.to(room._id.toString()).emit('room:member', {
+        roomId: room._id.toString(),
+        action: 'left',
+        userId: memberId,
+        username: leavingUser?.username || 'Someone',
+      })
     }
 
     res.json({ success: true })
