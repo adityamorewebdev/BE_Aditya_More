@@ -3,7 +3,7 @@ const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const User = require('../models/User');
 const DailyReward = require('../models/DailyReward');
-const UserMission = require('../models/UserMission');
+const MissionProgress = require('../models/MissionProgress');
 const Mission = require('../models/Mission');
 
 function getTodayReward(streakDay) {
@@ -92,32 +92,43 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
     // Update missions
     const missions = await Mission.find({});
     const missionsUpdated = [];
+    let missionCoins = 0;
 
     for (const mission of missions) {
-      let um = await UserMission.findOne({ uid, mission_name: mission.mission_name });
-      if (!um) {
-        um = new UserMission({ uid, mission_name: mission.mission_name });
+      let mp = await MissionProgress.findOne({ uid, mission_name: mission.mission_name });
+      if (!mp) {
+        mp = new MissionProgress({ uid, mission_name: mission.mission_name });
       }
-      if (um.completed) continue;
+      if (mp.completed) continue;
 
       const isStreakMission = mission.mission_name.toLowerCase().includes('streak');
 
       if (isStreakMission) {
-        um.progress = newStreak;
+        mp.progress = newStreak;
       } else {
-        um.progress = (um.progress ?? 0) + 1;
+        mp.progress = (mp.progress ?? 0) + 1;
       }
 
-      if (um.progress >= mission.count) {
-        um.completed = true;
-        um.completedAt = now;
-        if (!um.rewardClaimed) missionsUpdated.push(mission.mission_name);
+      if (mp.progress >= mission.count) {
+        mp.completed = true;
+        mp.completedAt = now;
+        mp.rewardClaimed = true;
+        mp.claimedAt = now;
+        missionCoins += Number(mission.reward);
+        missionsUpdated.push(mission.mission_name);
       }
 
-      await um.save();
+      await mp.save();
     }
 
-    res.json({ success: true, coinsEarned, newStreak, newBalance, missionsUpdated });
+    if (missionCoins > 0) {
+      await User.findOneAndUpdate(
+        { uid },
+        { $inc: { coinBalance: missionCoins, totalCoinsEarned: missionCoins, missionsCompleted: missionsUpdated.length } }
+      );
+    }
+
+    res.json({ success: true, coinsEarned, missionCoins, newStreak, newBalance: newBalance + missionCoins, missionsUpdated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -14,6 +14,9 @@ const User = require('./models/User');
 const UserOnboarding = require('./models/UserOnboarding');
 const UserGamePreferences = require('./models/UserGamePreferences');
 const GameSession = require('./models/GameSession');
+const MissionProgress = require('./models/MissionProgress');
+const Mission = require('./models/Mission');
+const missionsData = require('./data/missions.json');
 
 const app = express();
 app.use(cors());
@@ -34,7 +37,14 @@ connectDB()
       UserOnboarding.createCollection(),
       UserGamePreferences.createCollection(),
       GameSession.createCollection(),
+      MissionProgress.createCollection(),
+      Mission.createCollection(),
     ]);
+    await Promise.all(
+      missionsData.map(m =>
+        Mission.findOneAndUpdate({ mission_name: m.mission_name }, m, { upsert: true })
+      )
+    );
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch((err) => {

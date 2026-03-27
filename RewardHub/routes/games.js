@@ -5,7 +5,7 @@ const verifyToken = require('../middleware/verifyToken');
 const GameSession = require('../models/GameSession');
 const User = require('../models/User');
 const Mission = require('../models/Mission');
-const UserMission = require('../models/UserMission');
+const MissionProgress = require('../models/MissionProgress');
 const { getScorer } = require('../utils/scoring');
 
 // POST /api/games/start
@@ -75,27 +75,38 @@ router.post('/complete', verifyToken, async (req, res) => {
 
     const missions = await Mission.find({});
     const missionsUpdated = [];
+    let missionCoins = 0;
     const now = new Date();
 
     for (const mission of missions) {
       if (mission.type !== session.gameType) continue;
 
-      let um = await UserMission.findOne({ uid: req.user.uid, mission_name: mission.mission_name });
-      if (!um) {
-        um = new UserMission({ uid: req.user.uid, mission_name: mission.mission_name });
+      let mp = await MissionProgress.findOne({ uid: req.user.uid, mission_name: mission.mission_name });
+      if (!mp) {
+        mp = new MissionProgress({ uid: req.user.uid, mission_name: mission.mission_name });
       }
-      if (um.completed) continue;
+      if (mp.completed) continue;
 
-      um.progress = (um.progress ?? 0) + 1;
-      if (um.progress >= mission.count) {
-        um.completed = true;
-        um.completedAt = now;
+      mp.progress = (mp.progress ?? 0) + 1;
+      if (mp.progress >= mission.count) {
+        mp.completed = true;
+        mp.completedAt = now;
+        mp.rewardClaimed = true;
+        mp.claimedAt = now;
+        missionCoins += Number(mission.reward);
         missionsUpdated.push(mission.mission_name);
       }
-      await um.save();
+      await mp.save();
     }
 
-    res.json({ success: true, coinsEarned, newBalance: user.coinBalance, missionsUpdated });
+    if (missionCoins > 0) {
+      await User.findOneAndUpdate(
+        { uid: req.user.uid },
+        { $inc: { coinBalance: missionCoins, totalCoinsEarned: missionCoins, missionsCompleted: missionsUpdated.length } }
+      );
+    }
+
+    res.json({ success: true, coinsEarned, missionCoins, newBalance: user.coinBalance + missionCoins, missionsUpdated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

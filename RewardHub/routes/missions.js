@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const Mission = require('../models/Mission');
-const UserMission = require('../models/UserMission');
+const MissionProgress = require('../models/MissionProgress');
 const User = require('../models/User');
 
 // GET /api/missions
@@ -11,7 +11,7 @@ router.get('/', verifyToken, async (req, res) => {
     const uid = req.user.uid;
     const missions = await Mission.find({});
     const results = await Promise.all(missions.map(async (m) => {
-      const um = await UserMission.findOne({ uid, mission_name: m.mission_name });
+      const mp = await MissionProgress.findOne({ uid, mission_name: m.mission_name });
       return {
         _id: m._id,
         Mission: m.Mission,
@@ -20,9 +20,9 @@ router.get('/', verifyToken, async (req, res) => {
         reward: m.reward,
         Image: m.Image,
         mission_name: m.mission_name,
-        progress: um?.progress ?? 0,
-        completed: um?.completed ?? false,
-        rewardClaimed: um?.rewardClaimed ?? false,
+        progress: mp?.progress ?? 0,
+        completed: mp?.completed ?? false,
+        rewardClaimed: mp?.rewardClaimed ?? false,
       };
     }));
     res.json(results);
@@ -40,14 +40,14 @@ router.post('/claim/:mission_name', verifyToken, async (req, res) => {
     const mission = await Mission.findOne({ mission_name });
     if (!mission) return res.status(404).json({ error: 'Mission not found' });
 
-    const um = await UserMission.findOne({ uid, mission_name });
-    if (!um || !um.completed) return res.status(400).json({ error: 'Mission not completed yet' });
-    if (um.rewardClaimed) return res.status(400).json({ error: 'Reward already claimed' });
+    const mp = await MissionProgress.findOne({ uid, mission_name });
+    if (!mp || !mp.completed) return res.status(400).json({ error: 'Mission not completed yet' });
+    if (mp.rewardClaimed) return res.status(400).json({ error: 'Reward already claimed' });
 
     const coinsEarned = Number(mission.reward);
-    um.rewardClaimed = true;
-    um.claimedAt = new Date();
-    await um.save();
+    mp.rewardClaimed = true;
+    mp.claimedAt = new Date();
+    await mp.save();
 
     const user = await User.findOneAndUpdate(
       { uid },
