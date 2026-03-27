@@ -13,9 +13,6 @@ const userSchema = new mongoose.Schema({
   bestStreak:         { type: Number, default: 0 },
   missionsCompleted:  { type: Number, default: 0 },
   lastClaimedAt:      { type: Date },
-  onboardingComplete: { type: Boolean, default: false },
-  onboardingSkipped:  { type: Boolean, default: false },
-  gamePreferences:    { type: [String], default: [] },
   createdAt:          { type: Date, default: Date.now },
 }, { strict: true });
 

@@ -2,7 +2,25 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const User = require('../models/User');
+const UserOnboarding = require('../models/UserOnboarding');
+const UserGamePreferences = require('../models/UserGamePreferences');
 const { generateUniquePlayerNumber } = require('../utils/playerNumber');
+
+// Merges onboarding + game preference data into a plain user object so the
+// frontend keeps receiving onboardingComplete / onboardingSkipped / gamePreferences
+// without knowing about the split collections.
+async function withOnboarding(user) {
+  const [ob, gp] = await Promise.all([
+    UserOnboarding.findOne({ uid: user.uid }).lean(),
+    UserGamePreferences.findOne({ uid: user.uid }).lean(),
+  ]);
+  return {
+    ...user,
+    onboardingComplete: ob?.complete       ?? false,
+    onboardingSkipped:  ob?.skipped        ?? false,
+    gamePreferences:    gp?.preferences    ?? [],
+  };
+}
 
 // POST /api/auth/register — idempotent
 router.post('/register', verifyToken, async (req, res) => {
@@ -12,12 +30,12 @@ router.post('/register', verifyToken, async (req, res) => {
     const photoURL = picture || '';
     const provider = fb?.sign_in_provider?.includes('google') ? 'google' : 'email';
 
-    const existing = await User.findOne({ uid });
-    if (existing) return res.json(existing);
+    const existing = await User.findOne({ uid }).lean();
+    if (existing) return res.json(await withOnboarding(existing));
 
     const playerNumber = await generateUniquePlayerNumber();
     const user = await User.create({ uid, email, displayName, photoURL, provider, playerNumber });
-    res.status(201).json(user);
+    res.status(201).json(await withOnboarding(user.toObject()));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -26,9 +44,9 @@ router.post('/register', verifyToken, async (req, res) => {
 // GET /api/auth/me
 router.get('/me', verifyToken, async (req, res) => {
   try {
-    const user = await User.findOne({ uid: req.user.uid });
+    const user = await User.findOne({ uid: req.user.uid }).lean();
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    res.json(await withOnboarding(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -38,12 +56,25 @@ router.get('/me', verifyToken, async (req, res) => {
 router.patch('/update-profile', verifyToken, async (req, res) => {
   try {
     const { displayName, gamePreferences } = req.body;
-    const update = {};
-    if (displayName !== undefined) update.displayName = displayName;
-    if (gamePreferences !== undefined) update.gamePreferences = gamePreferences;
-    const user = await User.findOneAndUpdate({ uid: req.user.uid }, update, { new: true });
+
+    const userUpdate = {};
+    if (displayName !== undefined) userUpdate.displayName = displayName;
+
+    const [user] = await Promise.all([
+      Object.keys(userUpdate).length
+        ? User.findOneAndUpdate({ uid: req.user.uid }, userUpdate, { new: true }).lean()
+        : User.findOne({ uid: req.user.uid }).lean(),
+      gamePreferences !== undefined
+        ? UserGamePreferences.findOneAndUpdate(
+            { uid: req.user.uid },
+            { preferences: gamePreferences },
+            { upsert: true, new: true }
+          )
+        : Promise.resolve(),
+    ]);
+
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    res.json(await withOnboarding(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -52,13 +83,14 @@ router.patch('/update-profile', verifyToken, async (req, res) => {
 // PATCH /api/auth/onboarding-complete
 router.patch('/onboarding-complete', verifyToken, async (req, res) => {
   try {
-    const user = await User.findOneAndUpdate(
+    await UserOnboarding.findOneAndUpdate(
       { uid: req.user.uid },
-      { onboardingComplete: true },
-      { new: true }
+      { complete: true, completedAt: new Date() },
+      { upsert: true, new: true }
     );
+    const user = await User.findOne({ uid: req.user.uid }).lean();
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    res.json(await withOnboarding(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -67,13 +99,14 @@ router.patch('/onboarding-complete', verifyToken, async (req, res) => {
 // PATCH /api/auth/onboarding-skip
 router.patch('/onboarding-skip', verifyToken, async (req, res) => {
   try {
-    const user = await User.findOneAndUpdate(
+    await UserOnboarding.findOneAndUpdate(
       { uid: req.user.uid },
-      { onboardingSkipped: true },
-      { new: true }
+      { skipped: true, skippedAt: new Date() },
+      { upsert: true, new: true }
     );
+    const user = await User.findOne({ uid: req.user.uid }).lean();
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    res.json(await withOnboarding(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

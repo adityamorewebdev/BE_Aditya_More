@@ -9,6 +9,12 @@ const rewardsRoutes = require('./routes/rewards');
 const leaderboardRoutes = require('./routes/leaderboard');
 const gamesRoutes = require('./routes/games');
 
+// Import models so Mongoose registers them before createCollection is called
+const User = require('./models/User');
+const UserOnboarding = require('./models/UserOnboarding');
+const UserGamePreferences = require('./models/UserGamePreferences');
+const GameSession = require('./models/GameSession');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -22,7 +28,13 @@ app.use('/api/games', gamesRoutes);
 const PORT = process.env.PORT || 5000;
 
 connectDB()
-  .then(() => {
+  .then(async () => {
+    await Promise.all([
+      User.createCollection(),
+      UserOnboarding.createCollection(),
+      UserGamePreferences.createCollection(),
+      GameSession.createCollection(),
+    ]);
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch((err) => {
