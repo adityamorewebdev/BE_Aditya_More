@@ -11,7 +11,7 @@ function rankScore(u) {
 router.get('/', verifyToken, async (req, res) => {
   try {
     const all = await User.find({})
-      .select('uid displayName playerNumber totalCoinsEarned bestStreak missionsCompleted')
+      .select('uid displayName playerNumber coinBalance totalCoinsEarned streakCount bestStreak missionsCompleted')
       .lean();
 
     const sorted = all
@@ -24,7 +24,17 @@ router.get('/', verifyToken, async (req, res) => {
     const me = ranked.find(u => u.uid === req.user.uid);
     const myRank = me?.rank ?? ranked.length + 1;
 
-    res.json({ leaderboard, myRank, myScore: me?.score ?? 0 });
+    const currentUser = me ? {
+      rank:        me.rank,
+      uid:         me.uid,
+      playerNumber: me.playerNumber,
+      displayName: me.displayName,
+      score:       me.score,
+      streakCount: me.streakCount ?? 0,
+      coinBalance: me.coinBalance ?? 0,
+    } : null;
+
+    res.json({ leaderboard, currentUser, myRank, myScore: me?.score ?? 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
