@@ -21,6 +21,19 @@ function isSameDay(a, b) {
   );
 }
 
+function isYesterday(date, now) {
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return isSameDay(date, yesterday);
+}
+
+// Streak is alive if user claimed today or yesterday
+function isStreakAlive(lastClaimedAt, now) {
+  if (!lastClaimedAt) return false;
+  const d = new Date(lastClaimedAt);
+  return isSameDay(d, now) || isYesterday(d, now);
+}
+
 // GET /api/rewards/daily-status
 router.get('/daily-status', verifyToken, async (req, res) => {
   try {
@@ -29,12 +42,13 @@ router.get('/daily-status', verifyToken, async (req, res) => {
 
     const now = new Date();
     const canClaim = !user.lastClaimedAt || !isSameDay(new Date(user.lastClaimedAt), now);
-    const nextStreakDay = (user.streakCount ?? 0) + 1;
+    const effectiveStreak = isStreakAlive(user.lastClaimedAt, now) ? (user.streakCount ?? 0) : 0;
+    const nextStreakDay = effectiveStreak + 1;
     const todayReward = getTodayReward(nextStreakDay);
 
     res.json({
       canClaim,
-      streakCount: user.streakCount ?? 0,
+      streakCount: effectiveStreak,
       lastClaimedAt: user.lastClaimedAt,
       todayReward,
     });
@@ -56,13 +70,14 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Already claimed today' });
     }
 
-    // Determine new streak
+    // Determine new streak — continues only if user claimed yesterday (calendar day)
     let newStreak;
     if (!user.lastClaimedAt) {
       newStreak = 1;
+    } else if (isYesterday(new Date(user.lastClaimedAt), now)) {
+      newStreak = (user.streakCount ?? 0) + 1;
     } else {
-      const hoursSince = (now - new Date(user.lastClaimedAt)) / (1000 * 60 * 60);
-      newStreak = hoursSince > 24 ? 1 : (user.streakCount ?? 0) + 1;
+      newStreak = 1; // missed a day — streak resets
     }
 
     const coinsEarned = getTodayReward(newStreak);
@@ -104,6 +119,7 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
       const isStreakMission = mission.mission_name.toLowerCase().includes('streak');
 
       if (isStreakMission) {
+        // newStreak = 1 when streak broke — naturally resets progress
         mp.progress = newStreak;
       } else {
         mp.progress = (mp.progress ?? 0) + 1;
