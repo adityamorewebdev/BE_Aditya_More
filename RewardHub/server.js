@@ -6,6 +6,7 @@ const { connectDB } = require('./db');
 const authRoutes = require('./routes/auth');
 const missionsRoutes = require('./routes/missions');
 const rewardsRoutes = require('./routes/rewards');
+const leaderboardRoutes = require('./routes/leaderboard');
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/missions', missionsRoutes);
 app.use('/api/rewards', rewardsRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
 
 const PORT = process.env.PORT || 5000;
 

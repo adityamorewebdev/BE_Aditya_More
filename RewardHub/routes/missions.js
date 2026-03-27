@@ -51,7 +51,7 @@ router.post('/claim/:mission_name', verifyToken, async (req, res) => {
 
     const user = await User.findOneAndUpdate(
       { uid },
-      { $inc: { coinBalance: coinsEarned } },
+      { $inc: { coinBalance: coinsEarned, totalCoinsEarned: coinsEarned, missionsCompleted: 1 } },
       { new: true }
     );
 

@@ -80,7 +80,13 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
 
     await User.findOneAndUpdate(
       { uid },
-      { streakCount: newStreak, lastClaimedAt: now, coinBalance: newBalance }
+      {
+        streakCount: newStreak,
+        lastClaimedAt: now,
+        coinBalance: newBalance,
+        $inc: { totalCoinsEarned: coinsEarned },
+        $max: { bestStreak: newStreak },
+      }
     );
 
     // Update missions
