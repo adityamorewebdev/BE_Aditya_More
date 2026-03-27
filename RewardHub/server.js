@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth');
 const missionsRoutes = require('./routes/missions');
 const rewardsRoutes = require('./routes/rewards');
 const leaderboardRoutes = require('./routes/leaderboard');
+const gamesRoutes = require('./routes/games');
 
 const app = express();
 app.use(cors());
@@ -16,6 +17,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/missions', missionsRoutes);
 app.use('/api/rewards', rewardsRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/games', gamesRoutes);
 
 const PORT = process.env.PORT || 5000;
 
