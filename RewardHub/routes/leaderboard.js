@@ -34,6 +34,7 @@ router.get('/', verifyToken, async (req, res) => {
       coinBalance: me.coinBalance ?? 0,
     } : null;
 
+    res.set('Cache-Control', 'no-store');
     res.json({ leaderboard, currentUser, myRank, myScore: me?.score ?? 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });

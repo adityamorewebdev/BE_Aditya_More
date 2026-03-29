@@ -7,6 +7,7 @@ const User = require('../models/User');
 const Mission = require('../models/Mission');
 const MissionProgress = require('../models/MissionProgress');
 const { getScorer } = require('../utils/scoring');
+const { awardMission } = require('../utils/missionReward');
 
 // POST /api/games/start
 router.post('/start', verifyToken, async (req, res) => {
@@ -89,21 +90,11 @@ router.post('/complete', verifyToken, async (req, res) => {
 
       mp.progress = (mp.progress ?? 0) + 1;
       if (mp.progress >= mission.count) {
-        mp.completed = true;
-        mp.completedAt = now;
-        mp.rewardClaimed = true;
-        mp.claimedAt = now;
-        missionCoins += Number(mission.reward);
+        missionCoins += await awardMission(req.user.uid, mp, mission);
         missionsUpdated.push(mission.mission_name);
+      } else {
+        await mp.save();
       }
-      await mp.save();
-    }
-
-    if (missionCoins > 0) {
-      await User.findOneAndUpdate(
-        { uid: req.user.uid },
-        { $inc: { coinBalance: missionCoins, totalCoinsEarned: missionCoins, missionsCompleted: missionsUpdated.length } }
-      );
     }
 
     res.json({ success: true, coinsEarned, missionCoins, newBalance: user.coinBalance + missionCoins, missionsUpdated });

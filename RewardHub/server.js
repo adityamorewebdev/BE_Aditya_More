@@ -8,6 +8,7 @@ const missionsRoutes = require('./routes/missions');
 const rewardsRoutes = require('./routes/rewards');
 const leaderboardRoutes = require('./routes/leaderboard');
 const gamesRoutes = require('./routes/games');
+const debugRoutes = require('./routes/debug');
 
 // Import models so Mongoose registers them before createCollection is called
 const User = require('./models/User');
@@ -27,6 +28,7 @@ app.use('/api/missions', missionsRoutes);
 app.use('/api/rewards', rewardsRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/games', gamesRoutes);
+app.use('/api/debug', debugRoutes);
 
 const PORT = process.env.PORT || 5000;
 
