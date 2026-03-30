@@ -2,23 +2,30 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const User = require('../models/User');
+const UserStats = require('../models/UserStats');
 const UserOnboarding = require('../models/UserOnboarding');
 const UserGamePreferences = require('../models/UserGamePreferences');
 const { generateUniquePlayerNumber } = require('../utils/playerNumber');
 
-// Merges onboarding + game preference data into a plain user object so the
-// frontend keeps receiving onboardingComplete / onboardingSkipped / gamePreferences
-// without knowing about the split collections.
+// Merges onboarding, game preferences, and stats into a plain user object so
+// the frontend keeps receiving all fields without knowing about split collections.
 async function withOnboarding(user) {
-  const [ob, gp] = await Promise.all([
+  const [ob, gp, stats] = await Promise.all([
     UserOnboarding.findOne({ uid: user.uid }).lean(),
     UserGamePreferences.findOne({ uid: user.uid }).lean(),
+    UserStats.findOne({ uid: user.uid }).lean(),
   ]);
   return {
     ...user,
-    onboardingComplete: ob?.complete       ?? false,
-    onboardingSkipped:  ob?.skipped        ?? false,
-    gamePreferences:    gp?.preferences    ?? [],
+    coinBalance:       stats?.coinBalance       ?? 0,
+    totalCoinsEarned:  stats?.totalCoinsEarned  ?? 0,
+    streakCount:       stats?.streakCount       ?? 0,
+    bestStreak:        stats?.bestStreak        ?? 0,
+    missionsCompleted: stats?.missionsCompleted ?? 0,
+    lastClaimedAt:     stats?.lastClaimedAt     ?? null,
+    onboardingComplete: ob?.complete     ?? false,
+    onboardingSkipped:  ob?.skipped      ?? false,
+    gamePreferences:    gp?.preferences  ?? [],
   };
 }
 

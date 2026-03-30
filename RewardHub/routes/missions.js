@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
-const Mission = require('../models/Mission');
-const MissionProgress = require('../models/MissionProgress');
-const User = require('../models/User');
+const GlobalConfig = require('../models/GlobalConfig');
+const UserProgress = require('../models/UserProgress');
+const UserStats = require('../models/UserStats');
 
 function isSameDay(a, b) {
   return a.getFullYear() === b.getFullYear() &&
@@ -19,34 +19,68 @@ function isStreakAlive(lastClaimedAt, now) {
   return isSameDay(d, now) || isSameDay(d, yesterday);
 }
 
+function getWeekStart(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
+function isSameWeek(a, b) {
+  return getWeekStart(a).getTime() === getWeekStart(b).getTime();
+}
+
 // GET /api/missions
 router.get('/', verifyToken, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const [missions, user] = await Promise.all([
-      Mission.find({}),
-      User.findOne({ uid }).select('lastClaimedAt streakCount').lean(),
+    const [configs, stats] = await Promise.all([
+      GlobalConfig.find({ category: 'mission' }).lean(),
+      UserStats.findOne({ uid }).lean(),
     ]);
 
+    const missions = configs.map(c => c.payload);
     const now = new Date();
-    const streakAlive = isStreakAlive(user?.lastClaimedAt, now);
-    const streakCount = user?.streakCount ?? 0;
+    const streakAlive = isStreakAlive(stats?.lastClaimedAt, now);
+    const streakCount = stats?.streakCount ?? 0;
 
     const results = await Promise.all(missions.map(async (m) => {
-      const mp = await MissionProgress.findOne({ uid, mission_name: m.mission_name });
+      const mp = await UserProgress.findOne({ uid, mission_name: m.mission_name });
       const isStreakMission = m.mission_name.toLowerCase().includes('streak');
-      const isStreakSensitive = m.type === 'Daily' || m.type === 'Weekly';
+      const isWeeklyMission = m.type === 'Weekly';
 
       let effectiveProgress;
-      if (mp?.completed) {
-        // Keep showing count/count until next claim resets it
-        effectiveProgress = m.count;
-      } else if (!streakAlive && isStreakSensitive) {
-        effectiveProgress = 0;
-      } else if (isStreakMission) {
-        effectiveProgress = Math.min(streakCount, m.count);
+      let effectiveCompleted;
+      let effectiveRewardClaimed;
+
+      if (isWeeklyMission) {
+        const inCurrentWeek = mp?.weekOf && isSameWeek(mp.weekOf, now);
+        if (!inCurrentWeek) {
+          effectiveProgress = 0;
+          effectiveCompleted = false;
+          effectiveRewardClaimed = false;
+        } else if (mp?.completed) {
+          effectiveProgress = m.count;
+          effectiveCompleted = true;
+          effectiveRewardClaimed = mp.rewardClaimed ?? false;
+        } else {
+          effectiveProgress = mp?.progress ?? 0;
+          effectiveCompleted = false;
+          effectiveRewardClaimed = false;
+        }
       } else {
-        effectiveProgress = mp?.progress ?? 0;
+        effectiveCompleted = mp?.completed ?? false;
+        effectiveRewardClaimed = mp?.rewardClaimed ?? false;
+        if (mp?.completed) {
+          effectiveProgress = m.count;
+        } else if (!streakAlive) {
+          effectiveProgress = 0;
+        } else if (isStreakMission) {
+          effectiveProgress = Math.min(streakCount, m.count);
+        } else {
+          effectiveProgress = mp?.progress ?? 0;
+        }
       }
 
       return {
@@ -58,8 +92,8 @@ router.get('/', verifyToken, async (req, res) => {
         Image: m.Image,
         mission_name: m.mission_name,
         progress: effectiveProgress,
-        completed: mp?.completed ?? false,
-        rewardClaimed: mp?.rewardClaimed ?? false,
+        completed: effectiveCompleted,
+        rewardClaimed: effectiveRewardClaimed,
       };
     }));
     res.json(results);
@@ -74,25 +108,25 @@ router.post('/claim/:mission_name', verifyToken, async (req, res) => {
     const { mission_name } = req.params;
     const uid = req.user.uid;
 
-    const mission = await Mission.findOne({ mission_name });
-    if (!mission) return res.status(404).json({ error: 'Mission not found' });
+    const config = await GlobalConfig.findOne({ category: 'mission', key: mission_name }).lean();
+    if (!config) return res.status(404).json({ error: 'Mission not found' });
+    const mission = config.payload;
 
-    const mp = await MissionProgress.findOne({ uid, mission_name });
+    const mp = await UserProgress.findOne({ uid, mission_name });
     if (!mp || !mp.completed) return res.status(400).json({ error: 'Mission not completed yet' });
     if (mp.rewardClaimed) return res.status(400).json({ error: 'Reward already claimed' });
 
     const coinsEarned = Number(mission.reward);
     mp.rewardClaimed = true;
-    mp.claimedAt = new Date();
     await mp.save();
 
-    const user = await User.findOneAndUpdate(
+    const stats = await UserStats.findOneAndUpdate(
       { uid },
       { $inc: { coinBalance: coinsEarned, totalCoinsEarned: coinsEarned, missionsCompleted: 1 } },
-      { new: true }
+      { upsert: true, new: true }
     );
 
-    res.json({ success: true, coinsEarned, newBalance: user.coinBalance });
+    res.json({ success: true, coinsEarned, newBalance: stats.coinBalance });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

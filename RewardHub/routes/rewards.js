@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const User = require('../models/User');
+const UserStats = require('../models/UserStats');
 const DailyReward = require('../models/DailyReward');
-const MissionProgress = require('../models/MissionProgress');
-const Mission = require('../models/Mission');
+const UserProgress = require('../models/UserProgress');
+const GlobalConfig = require('../models/GlobalConfig');
 const { awardMission } = require('../utils/missionReward');
 
 function getTodayReward(streakDay) {
@@ -28,7 +29,18 @@ function isYesterday(date, now) {
   return isSameDay(date, yesterday);
 }
 
-// Streak is alive if user claimed today or yesterday
+function getWeekStart(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
+function isSameWeek(a, b) {
+  return getWeekStart(a).getTime() === getWeekStart(b).getTime();
+}
+
 function isStreakAlive(lastClaimedAt, now) {
   if (!lastClaimedAt) return false;
   const d = new Date(lastClaimedAt);
@@ -38,19 +50,18 @@ function isStreakAlive(lastClaimedAt, now) {
 // GET /api/rewards/daily-status
 router.get('/daily-status', verifyToken, async (req, res) => {
   try {
-    const user = await User.findOne({ uid: req.user.uid });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const stats = await UserStats.findOne({ uid: req.user.uid }).lean();
 
     const now = new Date();
-    const canClaim = !user.lastClaimedAt || !isSameDay(new Date(user.lastClaimedAt), now);
-    const effectiveStreak = isStreakAlive(user.lastClaimedAt, now) ? (user.streakCount ?? 0) : 0;
+    const canClaim = !stats?.lastClaimedAt || !isSameDay(new Date(stats.lastClaimedAt), now);
+    const effectiveStreak = isStreakAlive(stats?.lastClaimedAt, now) ? (stats?.streakCount ?? 0) : 0;
     const nextStreakDay = effectiveStreak + 1;
     const todayReward = getTodayReward(nextStreakDay);
 
     res.json({
       canClaim,
       streakCount: effectiveStreak,
-      lastClaimedAt: user.lastClaimedAt,
+      lastClaimedAt: stats?.lastClaimedAt ?? null,
       todayReward,
     });
   } catch (err) {
@@ -62,27 +73,30 @@ router.get('/daily-status', verifyToken, async (req, res) => {
 router.post('/claim-daily', verifyToken, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const user = await User.findOne({ uid });
+    const [user, stats] = await Promise.all([
+      User.findOne({ uid }).lean(),
+      UserStats.findOne({ uid }).lean(),
+    ]);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const now = new Date();
 
-    if (user.lastClaimedAt && isSameDay(new Date(user.lastClaimedAt), now)) {
+    if (stats?.lastClaimedAt && isSameDay(new Date(stats.lastClaimedAt), now)) {
       return res.status(400).json({ error: 'Already claimed today' });
     }
 
-    // Determine new streak — continues only if user claimed yesterday (calendar day)
     let newStreak;
-    if (!user.lastClaimedAt) {
+    if (!stats?.lastClaimedAt) {
       newStreak = 1;
-    } else if (isYesterday(new Date(user.lastClaimedAt), now)) {
-      newStreak = (user.streakCount ?? 0) + 1;
+    } else if (isYesterday(new Date(stats.lastClaimedAt), now)) {
+      newStreak = (stats.streakCount ?? 0) + 1;
     } else {
-      newStreak = 1; // missed a day — streak resets
+      newStreak = 1;
     }
 
     const coinsEarned = getTodayReward(newStreak);
-    const newBalance = (user.coinBalance ?? 0) + coinsEarned;
+    const currentBalance = stats?.coinBalance ?? 0;
+    const newBalance = currentBalance + coinsEarned;
 
     await DailyReward.create({
       email: user.email,
@@ -94,7 +108,7 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
       updatedAt: now,
     });
 
-    await User.findOneAndUpdate(
+    await UserStats.findOneAndUpdate(
       { uid },
       {
         streakCount: newStreak,
@@ -102,39 +116,61 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
         coinBalance: newBalance,
         $inc: { totalCoinsEarned: coinsEarned },
         $max: { bestStreak: newStreak },
-      }
+      },
+      { upsert: true }
     );
 
-    // Update missions
-    const missions = await Mission.find({});
+    const configs = await GlobalConfig.find({ category: 'mission' }).lean();
+    const missions = configs.map(c => c.payload);
     const missionsUpdated = [];
     let missionCoins = 0;
-    const streakBroke = !!(user.lastClaimedAt && !isYesterday(new Date(user.lastClaimedAt), now));
+    const streakBroke = !!(stats?.lastClaimedAt && !isYesterday(new Date(stats.lastClaimedAt), now));
+    const currentWeekStart = getWeekStart(now);
 
     for (const mission of missions) {
-      let mp = await MissionProgress.findOne({ uid, mission_name: mission.mission_name });
+      let mp = await UserProgress.findOne({ uid, mission_name: mission.mission_name });
       if (!mp) {
-        mp = new MissionProgress({ uid, mission_name: mission.mission_name });
+        mp = new UserProgress({
+          uid,
+          mission_name: mission.mission_name,
+          type: mission.type,
+          reward: mission.reward,
+          count: mission.count,
+        });
       }
 
-      // New cycle — reset missions completed in a previous claim
-      if (mp.completed && mp.rewardClaimed) {
-        mp.progress = 0;
-        mp.completed = false;
-        mp.rewardClaimed = false;
-        mp.completedAt = undefined;
-        mp.claimedAt = undefined;
-      }
-
-      // Reset ALL missions when streak breaks
-      if (streakBroke) mp.progress = 0;
-
+      const isWeeklyMission = mission.type === 'Weekly';
       const isStreakMission = mission.mission_name.toLowerCase().includes('streak');
 
-      if (isStreakMission) {
-        mp.progress = newStreak;
-      } else {
+      if (isWeeklyMission) {
+        const inCurrentWeek = mp.weekOf && isSameWeek(mp.weekOf, now);
+        if (!inCurrentWeek) {
+          mp.progress = 0;
+          mp.completed = false;
+          mp.rewardClaimed = false;
+          mp.weekOf = currentWeekStart;
+        }
+        if (mp.completed) {
+          await mp.save();
+          continue;
+        }
         mp.progress = (mp.progress ?? 0) + 1;
+      } else {
+        if (mp.completed && mp.rewardClaimed) {
+          mp.progress = 0;
+          mp.completed = false;
+          mp.rewardClaimed = false;
+        }
+        if (streakBroke) mp.progress = 0;
+        if (mp.completed) {
+          await mp.save();
+          continue;
+        }
+        if (isStreakMission) {
+          mp.progress = newStreak;
+        } else {
+          mp.progress = (mp.progress ?? 0) + 1;
+        }
       }
 
       if (mp.progress >= mission.count) {

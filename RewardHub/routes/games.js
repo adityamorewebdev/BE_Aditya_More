@@ -3,9 +3,9 @@ const router = express.Router();
 const { randomUUID } = require('crypto');
 const verifyToken = require('../middleware/verifyToken');
 const GameSession = require('../models/GameSession');
-const User = require('../models/User');
-const Mission = require('../models/Mission');
-const MissionProgress = require('../models/MissionProgress');
+const UserStats = require('../models/UserStats');
+const GlobalConfig = require('../models/GlobalConfig');
+const UserProgress = require('../models/UserProgress');
 const { getScorer } = require('../utils/scoring');
 const { awardMission } = require('../utils/missionReward');
 
@@ -38,7 +38,7 @@ router.post('/start', verifyToken, async (req, res) => {
 // POST /api/games/complete
 router.post('/complete', verifyToken, async (req, res) => {
   try {
-    const { sessionId, result, accuracy, timeRemaining, reason } = req.body;
+    const { sessionId, result, accuracy, timeRemaining } = req.body;
 
     const session = await GameSession.findOne({ sessionId });
     if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -68,23 +68,29 @@ router.post('/complete', verifyToken, async (req, res) => {
     session.rewardGranted = true;
     await session.save();
 
-    const user = await User.findOneAndUpdate(
+    const stats = await UserStats.findOneAndUpdate(
       { uid: req.user.uid },
       { $inc: { coinBalance: coinsEarned, totalCoinsEarned: coinsEarned } },
-      { new: true }
+      { upsert: true, new: true }
     );
 
-    const missions = await Mission.find({});
+    const configs = await GlobalConfig.find({ category: 'mission' }).lean();
+    const missions = configs.map(c => c.payload);
     const missionsUpdated = [];
     let missionCoins = 0;
-    const now = new Date();
 
     for (const mission of missions) {
       if (mission.type !== session.gameType) continue;
 
-      let mp = await MissionProgress.findOne({ uid: req.user.uid, mission_name: mission.mission_name });
+      let mp = await UserProgress.findOne({ uid: req.user.uid, mission_name: mission.mission_name });
       if (!mp) {
-        mp = new MissionProgress({ uid: req.user.uid, mission_name: mission.mission_name });
+        mp = new UserProgress({
+          uid: req.user.uid,
+          mission_name: mission.mission_name,
+          type: mission.type,
+          reward: mission.reward,
+          count: mission.count,
+        });
       }
       if (mp.completed) continue;
 
@@ -97,7 +103,7 @@ router.post('/complete', verifyToken, async (req, res) => {
       }
     }
 
-    res.json({ success: true, coinsEarned, missionCoins, newBalance: user.coinBalance + missionCoins, missionsUpdated });
+    res.json({ success: true, coinsEarned, missionCoins, newBalance: stats.coinBalance + missionCoins, missionsUpdated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

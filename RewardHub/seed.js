@@ -35,9 +35,17 @@ async function run() {
     toDateFields(d, ['claimedAt', 'createdAt', 'updatedAt'])
   );
 
+  // Seed missions into globalconfig
   if (missions.length) {
-    await db.collection('missions').deleteMany({});
-    await db.collection('missions').insertMany(missions);
+    await db.collection('globalconfig').deleteMany({ category: 'mission' });
+    await db.collection('globalconfig').insertMany(
+      missions.map(m => ({
+        category: 'mission',
+        key: m.mission_name,
+        payload: m,
+        updatedAt: new Date(),
+      }))
+    );
   }
 
   if (dailyrewards.length) {

@@ -12,11 +12,12 @@ const debugRoutes = require('./routes/debug');
 
 // Import models so Mongoose registers them before createCollection is called
 const User = require('./models/User');
+const UserStats = require('./models/UserStats');
 const UserOnboarding = require('./models/UserOnboarding');
 const UserGamePreferences = require('./models/UserGamePreferences');
 const GameSession = require('./models/GameSession');
-const MissionProgress = require('./models/MissionProgress');
-const Mission = require('./models/Mission');
+const UserProgress = require('./models/UserProgress');
+const GlobalConfig = require('./models/GlobalConfig');
 const missionsData = require('./data/missions.json');
 
 const app = express();
@@ -36,17 +37,28 @@ connectDB()
   .then(async () => {
     await Promise.all([
       User.createCollection(),
+      UserStats.createCollection(),
       UserOnboarding.createCollection(),
       UserGamePreferences.createCollection(),
       GameSession.createCollection(),
-      MissionProgress.createCollection(),
-      Mission.createCollection(),
+      UserProgress.createCollection(),
+      GlobalConfig.createCollection(),
     ]);
+
+    // Sync mission definitions into globalconfig
     await Promise.all(
       missionsData.map(m =>
-        Mission.findOneAndUpdate({ mission_name: m.mission_name }, m, { upsert: true })
+        GlobalConfig.findOneAndUpdate(
+          { category: 'mission', key: m.mission_name },
+          { category: 'mission', key: m.mission_name, payload: m, updatedAt: new Date() },
+          { upsert: true }
+        )
       )
     );
+    const activeNames = missionsData.map(m => m.mission_name);
+    await GlobalConfig.deleteMany({ category: 'mission', key: { $nin: activeNames } });
+    await UserProgress.deleteMany({ mission_name: { $nin: activeNames } });
+
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch((err) => {

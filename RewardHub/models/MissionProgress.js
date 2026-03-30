@@ -8,6 +8,7 @@ const missionProgressSchema = new mongoose.Schema({
   completedAt:  { type: Date },
   rewardClaimed:{ type: Boolean, default: false },
   claimedAt:    { type: Date },
+  weekOf:       { type: Date },
   createdAt:    { type: Date, default: Date.now },
 }, { strict: true });
 

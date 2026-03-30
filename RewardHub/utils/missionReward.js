@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const UserStats = require('../models/UserStats');
 
 /**
  * Award coins and mark mission as completed — does NOT reset progress.
@@ -7,15 +7,14 @@ const User = require('../models/User');
  */
 async function awardMission(uid, mp, mission) {
   const coins = Number(mission.reward);
-  await User.findOneAndUpdate(
+  await UserStats.findOneAndUpdate(
     { uid },
-    { $inc: { coinBalance: coins, totalCoinsEarned: coins, missionsCompleted: 1 } }
+    { $inc: { coinBalance: coins, totalCoinsEarned: coins, missionsCompleted: 1 } },
+    { upsert: true }
   );
   mp.progress = mission.count;
   mp.completed = true;
   mp.rewardClaimed = true;
-  mp.completedAt = new Date();
-  mp.claimedAt = new Date();
   await mp.save();
   return coins;
 }
