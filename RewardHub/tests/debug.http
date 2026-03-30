@@ -1,0 +1,661 @@
+# RewardHub — Debug Endpoint Scenarios
+# Run with VS Code REST Client extension (ritwickdey.rest-client)
+# Replace {{token}} with a valid Firebase ID token for a real user,
+# OR set NODE_ENV=development to skip auth (verifyToken passes through).
+#
+# Workflow for each section:
+#   1. Run the setup request to put the account in the right state
+#   2. Run the action request (usually claim-daily)
+#   3. Run "Inspect state" to confirm the result
+
+@base = http://localhost:5001
+@token = YOUR_FIREBASE_ID_TOKEN_HERE
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SHARED UTILITIES
+# ─────────────────────────────────────────────────────────────────────────────
+
+### Inspect full state (user + stats + every mission)
+GET {{base}}/api/debug/state
+Authorization: Bearer {{token}}
+
+###
+
+### Get missions display (what the frontend sees)
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### Claim daily reward
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### Reset everything — wipes all progress, zeroes streak
+POST {{base}}/api/debug/reset-missions
+Authorization: Bearer {{token}}
+
+###
+
+### Reset coin balance
+POST {{base}}/api/debug/reset-coins
+Authorization: Bearer {{token}}
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DAILY MISSIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── DailyClaim1 (complete on every single claim, 10 coins) ───────────────────
+
+### [DailyClaim1] Day 1 — first claim ever, should complete immediately
+# 1. Reset state
+POST {{base}}/api/debug/reset-missions
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim1] Action — claim (should award DailyClaim1 + 10 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim1] Day 2 — shift to yesterday, claim again (should award again)
+POST {{base}}/api/debug/shift-claim?days=-1
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim1] Action — second claim (DailyClaim1 should appear in missionsUpdated again)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+
+# ── DailyClaim3Days (complete every 3 claims, 50 coins) ──────────────────────
+
+### [DailyClaim3Days] Setup — at 2/3 (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=2
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim3Days] Inspect — should show 2/3
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim3Days] Action — claim (should complete DailyClaim3Days, award 50 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim3Days] After completion — 4th claim starts new cycle (should show 1/3)
+POST {{base}}/api/debug/shift-claim?days=-1
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim3Days] Action — 4th claim (new cycle, progress resets to 1/3)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim3Days] Streak-break test — at 2/3, break streak, claim (should still complete)
+POST {{base}}/api/debug/prepare-day?n=2
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim3Days] Shift 2 days back to break streak
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim3Days] Action — claim after streak break (3/3 complete, streak is irrelevant)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+
+# ── DailyClaim7Days (complete every 7 claims, 150 coins) ─────────────────────
+
+### [DailyClaim7Days] Setup — at 6/7 (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=6
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim7Days] Inspect — should show 6/7
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim7Days] Action — 7th claim (completes, awards 150 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim7Days] Setup for cycle test — 8th claim starts new cycle
+POST {{base}}/api/debug/shift-claim?days=-1
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim7Days] Action — 8th claim (new cycle, progress = 1/7)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim7Days] n=29 test — 29 mod 7 = 1, should show 1/7
+POST {{base}}/api/debug/prepare-day?n=29
+Authorization: Bearer {{token}}
+
+###
+
+### [DailyClaim7Days] Inspect — should show DailyClaim7Days at 1/7
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+
+# ── Streak5Days (5 consecutive days, 100 coins) ───────────────────────────────
+
+### [Streak5Days] Setup — streak at 4, claimed yesterday (next claim = day 5)
+POST {{base}}/api/debug/prepare-day?n=4
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] Inspect — should show 4/5
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] Action — 5th consecutive claim (completes, awards 100 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] Streak-break test — at 4/5, break streak, claim (should NOT complete)
+POST {{base}}/api/debug/prepare-day?n=4
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] Break streak (last claimed 2 days ago)
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] Inspect — streak dead, should show 0/5
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] Action — claim after break (new streak = 1, mission resets to 1/5)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] n=29 test — 29 mod 5 = 4, next claim completes
+POST {{base}}/api/debug/prepare-day?n=29
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak5Days] Action — claim (streak = 30, 30 % 5 = 0 → re-awards)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+
+# ── Streak10Days (10 consecutive days, 300 coins) ────────────────────────────
+
+### [Streak10Days] Setup — at 9/10 (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=9
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak10Days] Action — 10th claim (completes, awards 300 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak10Days] Cycling — day 11 should re-award Streak10Days
+POST {{base}}/api/debug/shift-claim?days=-1
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak10Days] Action — 11th consecutive claim (cycles, awards again)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak10Days] Streak-break at 9 — should NOT complete
+POST {{base}}/api/debug/prepare-day?n=9
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak10Days] Break the streak
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak10Days] Action — claim after break (resets to 1, no award)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+
+# ── Streak30Days (30 consecutive days, 1000 coins) ───────────────────────────
+
+### [Streak30Days] Setup — at 29/30 (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=29
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak30Days] Inspect — should show 29/30
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak30Days] Action — 30th claim (completes, awards 1000 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak30Days] Streak-break at 29 — should NOT complete, no award
+POST {{base}}/api/debug/prepare-day?n=29
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak30Days] Break streak
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [Streak30Days] Action — claim after break (streak resets to 1, no 1000-coin award)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WEEKLY MISSIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── WeeklyClaim3 (3 claims this week, 50 coins) ───────────────────────────────
+
+### [WeeklyClaim3] Setup — at 2/3 this week (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=2
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] Inspect — should show 2/3, not completed
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] Action — 3rd claim this week (completes, awards 50 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] 4th claim same week — should NOT re-award
+POST {{base}}/api/debug/shift-claim?days=-1
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] Action — 4th in-week claim (no award, still shows completed)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] Week expiry test — expire week after 2 claims
+POST {{base}}/api/debug/prepare-day?n=2
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] Expire the week
+POST {{base}}/api/debug/expire-week
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] Inspect after expiry — should show 0/3, not completed
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim3] Complete again in new week — shift to yesterday and claim 3 times
+POST {{base}}/api/debug/shift-claim?days=-1
+Authorization: Bearer {{token}}
+
+
+# ── WeeklyClaim5 (5 claims this week, 120 coins) ─────────────────────────────
+
+### [WeeklyClaim5] Setup — at 4/5 this week (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=4
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim5] Action — 5th in-week claim (completes, awards 120 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim5] Streak-break test — progress preserved when streak breaks
+POST {{base}}/api/debug/prepare-day?n=3
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim5] Break streak (2 days back)
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim5] Action — claim after break (weekly progress goes 3→4, streak irrelevant)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim5] Inspect — should show 4/5 (NOT reset by streak break)
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim5] n=29 — should show WeeklyClaim5 completed (29 >= 5)
+POST {{base}}/api/debug/prepare-day?n=29
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim5] Inspect — completed=true, rewardClaimed=true
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+
+# ── WeeklyClaim7 (7 claims this week, 300 coins) ─────────────────────────────
+
+### [WeeklyClaim7] Setup — at 6/7 this week (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=6
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim7] Inspect — should show 6/7
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim7] Action — 7th in-week claim (completes, awards 300 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim7] Streak-break test — 5/7, break streak, claim (progress preserved at 6)
+POST {{base}}/api/debug/prepare-day?n=5
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim7] Break streak
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim7] Action — claim after break (WeeklyClaim7 goes 5→6, not reset)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [WeeklyClaim7] Inspect — WeeklyClaim7 should be 6/7, PerfectWeek should be 1/7 (reset)
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+
+# ── PerfectWeek (7 consecutive days this week, 500 coins) ────────────────────
+# ONLY weekly mission that resets on streak break.
+
+### [PerfectWeek] Setup — 6 consecutive claims this week (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=6
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Action — 7th consecutive claim (completes PerfectWeek, awards 500 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Streak-break test — 4 consecutive in-week, then break
+POST {{base}}/api/debug/prepare-day?n=4
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Break streak (2 days back)
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Action — claim after break
+# Expected: PerfectWeek resets (streak broke), then re-increments to 1/7
+# Expected: WeeklyClaim7 still goes 4→5 (not reset)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Inspect — PerfectWeek=1/7, WeeklyClaim7=5/7
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Week expiry test
+POST {{base}}/api/debug/prepare-day?n=5
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Expire the week
+POST {{base}}/api/debug/expire-week
+Authorization: Bearer {{token}}
+
+###
+
+### [PerfectWeek] Inspect — PerfectWeek should show 0/7 after week expires
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+
+# ── AlmostPerfectWeek (6 claims this week, 250 coins, streak NOT required) ───
+
+### [AlmostPerfectWeek] Setup — at 5/6 this week (next claim completes it)
+POST {{base}}/api/debug/prepare-day?n=5
+Authorization: Bearer {{token}}
+
+###
+
+### [AlmostPerfectWeek] Action — 6th in-week claim (completes, awards 250 coins)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [AlmostPerfectWeek] Streak-break test — 4/6, break, claim (progress preserved)
+POST {{base}}/api/debug/prepare-day?n=4
+Authorization: Bearer {{token}}
+
+###
+
+### [AlmostPerfectWeek] Break streak
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [AlmostPerfectWeek] Action — claim after break (AlmostPerfectWeek goes 4→5, PerfectWeek resets to 1)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [AlmostPerfectWeek] Inspect — AlmostPerfectWeek=5/6 (preserved), PerfectWeek=1/7 (reset)
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [AlmostPerfectWeek] Week expiry — resets to 0/6
+POST {{base}}/api/debug/expire-week
+Authorization: Bearer {{token}}
+
+###
+
+### [AlmostPerfectWeek] Inspect — should show 0/6 after expiry
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CROSS-MISSION SCENARIOS
+# ─────────────────────────────────────────────────────────────────────────────
+
+### [Cross] Streak-break contrast: cumulative preserved, streak reset, PerfectWeek reset
+# Setup: 4 consecutive days (streak=4, all missions at 4/count or 4 in week)
+POST {{base}}/api/debug/prepare-day?n=4
+Authorization: Bearer {{token}}
+
+###
+
+### [Cross] Break streak
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}
+
+###
+
+### [Cross] Action — claim after break
+# DailyClaim3Days: 4%3=1 → 2/3 (not reset)
+# DailyClaim7Days: 4%7=4 → 5/7 (not reset)
+# Streak5Days: was 4/5 → resets to 0, then sets to 1/5
+# Streak10Days: was 4/10 → resets to 0, then sets to 1/10
+# WeeklyClaim*: 4→5 (not reset by streak break)
+# PerfectWeek: resets to 0, then 1/7
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [Cross] Inspect — verify each mission updated correctly
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+###
+
+### [Cross] Week + streak combined: expire week then claim
+POST {{base}}/api/debug/prepare-day?n=6
+Authorization: Bearer {{token}}
+
+###
+
+### [Cross] Expire week (weeklies reset), keep streak alive
+POST {{base}}/api/debug/expire-week
+Authorization: Bearer {{token}}
+
+###
+
+### [Cross] Action — claim in new week (weekly missions reset to 1/count, daily missions continue)
+POST {{base}}/api/rewards/claim-daily
+Authorization: Bearer {{token}}
+
+###
+
+### [Cross] Inspect — weeklies at 1/count, daily missions continue their cycle
+GET {{base}}/api/missions
+Authorization: Bearer {{token}}
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FINE-GRAINED CONTROL (manual state surgery)
+# ─────────────────────────────────────────────────────────────────────────────
+
+### Set a single mission's state manually
+# Example: WeeklyClaim3 at 2/3, current week
+POST {{base}}/api/debug/set-mission?name=WeeklyClaim3&progress=2
+Authorization: Bearer {{token}}
+
+###
+
+### Force-complete a mission (regardless of actual progress)
+POST {{base}}/api/debug/complete-mission?name=Streak5Days
+Authorization: Bearer {{token}}
+
+###
+
+### Set streak directly to a specific value (does not touch lastClaimedAt)
+POST {{base}}/api/debug/set-streak?n=9
+Authorization: Bearer {{token}}
+
+###
+
+### Clear lastClaimedAt — next claim starts a brand-new streak from 1
+POST {{base}}/api/debug/shift-claim?days=0
+Authorization: Bearer {{token}}
+
+###
+
+### Shift lastClaimedAt to yesterday — next claim continues streak
+POST {{base}}/api/debug/shift-claim?days=-1
+Authorization: Bearer {{token}}
+
+###
+
+### Shift lastClaimedAt to 2 days ago — next claim BREAKS streak
+POST {{base}}/api/debug/shift-claim?days=-2
+Authorization: Bearer {{token}}

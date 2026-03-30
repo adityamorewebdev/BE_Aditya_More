@@ -55,8 +55,10 @@ router.get('/', verifyToken, async (req, res) => {
       let effectiveRewardClaimed;
 
       if (isWeeklyMission) {
-        const inCurrentWeek = mp?.weekOf && isSameWeek(mp.weekOf, now);
-        if (!inCurrentWeek) {
+        // Zero out only when weekOf is explicitly set to a previous week.
+        // If weekOf is absent, trust whatever progress is stored.
+        const isStaleWeek = mp?.weekOf && !isSameWeek(mp.weekOf, now);
+        if (isStaleWeek) {
           effectiveProgress = 0;
           effectiveCompleted = false;
           effectiveRewardClaimed = false;
@@ -69,18 +71,24 @@ router.get('/', verifyToken, async (req, res) => {
           effectiveCompleted = false;
           effectiveRewardClaimed = false;
         }
-      } else {
+      } else if (isStreakMission) {
+        // Streak missions: show 0 when streak is dead.
+        // Use stored mp.progress (not live streakCount) so debug/prepare-day staged
+        // values are respected and cycle position is accurate.
         effectiveCompleted = mp?.completed ?? false;
         effectiveRewardClaimed = mp?.rewardClaimed ?? false;
         if (mp?.completed) {
           effectiveProgress = m.count;
         } else if (!streakAlive) {
           effectiveProgress = 0;
-        } else if (isStreakMission) {
-          effectiveProgress = Math.min(streakCount, m.count);
         } else {
-          effectiveProgress = mp?.progress ?? 0;
+          effectiveProgress = Math.min(mp?.progress ?? 0, m.count);
         }
+      } else {
+        // Cumulative daily missions: always show stored progress — streak state is irrelevant
+        effectiveCompleted = mp?.completed ?? false;
+        effectiveRewardClaimed = mp?.rewardClaimed ?? false;
+        effectiveProgress = mp?.completed ? m.count : (mp?.progress ?? 0);
       }
 
       return {

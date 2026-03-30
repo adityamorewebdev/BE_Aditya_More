@@ -7,12 +7,23 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "seed": "node seed.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest --runInBand",
+    "test:daily": "jest tests/daily.test.js --runInBand --verbose",
+    "test:weekly": "jest tests/weekly.test.js --runInBand --verbose"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testTimeout": 30000
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^10.4.3",
+    "supertest": "^7.2.2"
+  },
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",

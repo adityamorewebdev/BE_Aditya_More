@@ -91,12 +91,13 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
     } else if (isYesterday(new Date(stats.lastClaimedAt), now)) {
       newStreak = (stats.streakCount ?? 0) + 1;
     } else {
-      newStreak = 1;
+      newStreak = 1; // missed a day — streak resets
     }
 
     const coinsEarned = getTodayReward(newStreak);
-    const currentBalance = stats?.coinBalance ?? 0;
-    const newBalance = currentBalance + coinsEarned;
+    const newBalance = (stats?.coinBalance ?? 0) + coinsEarned;
+    const streakBroke = !!(stats?.lastClaimedAt && !isYesterday(new Date(stats.lastClaimedAt), now));
+    const currentWeekStart = getWeekStart(now);
 
     await DailyReward.create({
       email: user.email,
@@ -124,8 +125,6 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
     const missions = configs.map(c => c.payload);
     const missionsUpdated = [];
     let missionCoins = 0;
-    const streakBroke = !!(stats?.lastClaimedAt && !isYesterday(new Date(stats.lastClaimedAt), now));
-    const currentWeekStart = getWeekStart(now);
 
     for (const mission of missions) {
       let mp = await UserProgress.findOne({ uid, mission_name: mission.mission_name });
@@ -141,36 +140,52 @@ router.post('/claim-daily', verifyToken, async (req, res) => {
 
       const isWeeklyMission = mission.type === 'Weekly';
       const isStreakMission = mission.mission_name.toLowerCase().includes('streak');
+      const isPerfectWeek = mission.mission_name === 'PerfectWeek';
 
       if (isWeeklyMission) {
-        const inCurrentWeek = mp.weekOf && isSameWeek(mp.weekOf, now);
-        if (!inCurrentWeek) {
+        // Reset at week boundary (Monday)
+        const isStaleWeek = mp.weekOf && !isSameWeek(mp.weekOf, now);
+        if (isStaleWeek) {
           mp.progress = 0;
           mp.completed = false;
           mp.rewardClaimed = false;
           mp.weekOf = currentWeekStart;
         }
-        if (mp.completed) {
-          await mp.save();
-          continue;
+        // PerfectWeek requires every day this week — reset if streak broke
+        if (isPerfectWeek && streakBroke) {
+          mp.progress = 0;
+          mp.completed = false;
+          mp.rewardClaimed = false;
         }
+        if (mp.completed) { await mp.save(); continue; }
         mp.progress = (mp.progress ?? 0) + 1;
-      } else {
+
+      } else if (isStreakMission) {
+        // Streak missions track consecutive days — reset entirely on streak break
+        if (streakBroke) {
+          mp.progress = 0;
+          mp.completed = false;
+          mp.rewardClaimed = false;
+        }
+        // Cycle: once reward is claimed, reset so it can complete again next time streak reaches count
         if (mp.completed && mp.rewardClaimed) {
           mp.progress = 0;
           mp.completed = false;
           mp.rewardClaimed = false;
         }
-        if (streakBroke) mp.progress = 0;
-        if (mp.completed) {
-          await mp.save();
-          continue;
+        if (mp.completed) { await mp.save(); continue; }
+        mp.progress = newStreak;
+
+      } else {
+        // Cumulative daily missions (DailyClaim1/3Days/7Days) — never reset on streak break,
+        // only cycle after the reward has been claimed
+        if (mp.completed && mp.rewardClaimed) {
+          mp.progress = 0;
+          mp.completed = false;
+          mp.rewardClaimed = false;
         }
-        if (isStreakMission) {
-          mp.progress = newStreak;
-        } else {
-          mp.progress = (mp.progress ?? 0) + 1;
-        }
+        if (mp.completed) { await mp.save(); continue; }
+        mp.progress = (mp.progress ?? 0) + 1;
       }
 
       if (mp.progress >= mission.count) {
