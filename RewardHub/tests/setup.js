@@ -2,10 +2,10 @@ const mongoose  = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const GlobalConfig = require('../models/GlobalConfig');
 const User        = require('../models/User');
-const UserStats   = require('../models/UserStats');
-const UserProgress = require('../models/UserProgress');
 const DailyReward = require('../models/DailyReward');
-const missionsData = require('../data/missions.json');
+const Mission     = require('../models/Mission');
+const dailyRewardsData = require('../data/dailyrewards.json');
+const missionsData     = require('../data/missions.json');
 
 const TEST_UID   = 'test-uid-001';
 const TEST_EMAIL = 'test@rewardhub.dev';
@@ -22,16 +22,12 @@ async function disconnectDB() {
   await mongoServer.stop();
 }
 
-async function seedMissions() {
-  await GlobalConfig.deleteMany({ category: 'mission' });
-  await GlobalConfig.insertMany(
-    missionsData.map(m => ({
-      category: 'mission',
-      key: m.mission_name,
-      payload: m,
-      updatedAt: new Date(),
-    }))
-  );
+async function seedConfig() {
+  await GlobalConfig.deleteMany({ category: 'config' });
+  await GlobalConfig.insertMany([
+    { category: 'config', key: 'daily_rewards', payload: dailyRewardsData, updatedAt: new Date() },
+    { category: 'config', key: 'missions',      payload: missionsData,     updatedAt: new Date() },
+  ]);
 }
 
 async function createTestUser() {
@@ -44,10 +40,9 @@ async function createTestUser() {
 
 async function clearUserData() {
   await Promise.all([
-    UserStats.deleteOne({ uid: TEST_UID }),
-    UserProgress.deleteMany({ uid: TEST_UID }),
     DailyReward.deleteMany({ email: TEST_EMAIL }),
+    Mission.deleteMany({ email: TEST_EMAIL }),
   ]);
 }
 
-module.exports = { TEST_UID, connectDB, disconnectDB, seedMissions, createTestUser, clearUserData };
+module.exports = { TEST_UID, TEST_EMAIL, connectDB, disconnectDB, seedConfig, createTestUser, clearUserData };

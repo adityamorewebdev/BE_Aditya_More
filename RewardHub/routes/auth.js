@@ -2,30 +2,58 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const User = require('../models/User');
-const UserStats = require('../models/UserStats');
 const UserOnboarding = require('../models/UserOnboarding');
 const UserGamePreferences = require('../models/UserGamePreferences');
+const DailyReward = require('../models/DailyReward');
+const Mission = require('../models/Mission');
 const { generateUniquePlayerNumber } = require('../utils/playerNumber');
 
-// Merges onboarding, game preferences, and stats into a plain user object so
-// the frontend keeps receiving all fields without knowing about split collections.
+function isSameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
+function isStreakAlive(claimDate, now) {
+  if (!claimDate) return false;
+  const d = new Date(claimDate);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return isSameDay(d, now) || isSameDay(d, yesterday);
+}
+
+// Merges onboarding, game preferences, and stats into a plain user object.
+// coinBalance, streakCount, bestStreak, missionsCompleted, lastClaimedAt are all
+// derived from the dailyrewards and missions collections — no user_stats dependency.
 async function withOnboarding(user) {
-  const [ob, gp, stats] = await Promise.all([
+  const now = new Date();
+  const [ob, gp, dailyAgg, missionAgg, latestReward, bestStreakDoc] = await Promise.all([
     UserOnboarding.findOne({ uid: user.uid }).lean(),
     UserGamePreferences.findOne({ uid: user.uid }).lean(),
-    UserStats.findOne({ uid: user.uid }).lean(),
+    DailyReward.aggregate([{ $match: { email: user.email } }, { $group: { _id: null, total: { $sum: '$Amount' } } }]),
+    Mission.aggregate([{ $match: { email: user.email } }, { $group: { _id: null, total: { $sum: { $toDouble: '$Amount' } }, count: { $sum: 1 } } }]),
+    DailyReward.findOne({ email: user.email }, { streak: 1, ClaimDate: 1 }).sort({ ClaimDate: -1 }).lean(),
+    DailyReward.findOne({ email: user.email }, { streak: 1 }).sort({ streak: -1 }).lean(),
   ]);
+
+  const coinBalance = (dailyAgg[0]?.total ?? 0) + (missionAgg[0]?.total ?? 0);
+  const alive = isStreakAlive(latestReward?.ClaimDate, now);
+  const streakCount = alive ? (latestReward?.streak ?? 0) : 0;
+  const bestStreak = bestStreakDoc?.streak ?? 0;
+  const missionsCompleted = missionAgg[0]?.count ?? 0;
+  const lastClaimedAt = latestReward?.ClaimDate ?? null;
+
   return {
     ...user,
-    coinBalance:       stats?.coinBalance       ?? 0,
-    totalCoinsEarned:  stats?.totalCoinsEarned  ?? 0,
-    streakCount:       stats?.streakCount       ?? 0,
-    bestStreak:        stats?.bestStreak        ?? 0,
-    missionsCompleted: stats?.missionsCompleted ?? 0,
-    lastClaimedAt:     stats?.lastClaimedAt     ?? null,
-    onboardingComplete: ob?.complete     ?? false,
-    onboardingSkipped:  ob?.skipped      ?? false,
-    gamePreferences:    gp?.preferences  ?? [],
+    coinBalance,
+    totalCoinsEarned:  coinBalance,
+    streakCount,
+    bestStreak,
+    missionsCompleted,
+    lastClaimedAt,
+    onboardingComplete: ob?.complete    ?? false,
+    onboardingSkipped:  ob?.skipped     ?? false,
+    gamePreferences:    gp?.preferences ?? [],
   };
 }
 

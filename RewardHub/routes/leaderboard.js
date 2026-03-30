@@ -2,35 +2,35 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const User = require('../models/User');
-const UserStats = require('../models/UserStats');
-
-function rankScore(s) {
-  return (s.totalCoinsEarned ?? 0) + (s.bestStreak ?? 0) * 50 + (s.missionsCompleted ?? 0) * 100;
-}
+const DailyReward = require('../models/DailyReward');
+const Mission = require('../models/Mission');
 
 // GET /api/leaderboard
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const [users, allStats] = await Promise.all([
-      User.find({}).select('uid displayName playerNumber').lean(),
-      UserStats.find({}).lean(),
+    const [users, dailyAggAll, missionAggAll] = await Promise.all([
+      User.find({}).select('uid email displayName playerNumber').lean(),
+      DailyReward.aggregate([{ $group: { _id: '$email', coins: { $sum: '$Amount' } } }]),
+      Mission.aggregate([{ $group: { _id: '$email', coins: { $sum: { $toDouble: '$Amount' } }, count: { $sum: 1 } } }]),
     ]);
 
-    const statsMap = Object.fromEntries(allStats.map(s => [s.uid, s]));
+    const dailyMap  = Object.fromEntries(dailyAggAll.map(d => [d._id, d.coins]));
+    const missionMap = Object.fromEntries(missionAggAll.map(m => [m._id, { coins: m.coins, count: m.count }]));
 
     const sorted = users
       .map(u => {
-        const s = statsMap[u.uid] ?? {};
+        const dailyCoins   = dailyMap[u.email]    ?? 0;
+        const missionData  = missionMap[u.email]  ?? { coins: 0, count: 0 };
+        const coinBalance  = dailyCoins + missionData.coins;
+        const missionsCompleted = missionData.count;
         return {
           uid:               u.uid,
           displayName:       u.displayName,
           playerNumber:      u.playerNumber,
-          coinBalance:       s.coinBalance       ?? 0,
-          totalCoinsEarned:  s.totalCoinsEarned  ?? 0,
-          streakCount:       s.streakCount       ?? 0,
-          bestStreak:        s.bestStreak        ?? 0,
-          missionsCompleted: s.missionsCompleted ?? 0,
-          score: rankScore(s),
+          coinBalance,
+          totalCoinsEarned:  coinBalance,
+          missionsCompleted,
+          score:             coinBalance + missionsCompleted * 100,
         };
       })
       .sort((a, b) => b.score - a.score);
@@ -46,7 +46,6 @@ router.get('/', verifyToken, async (req, res) => {
       playerNumber: me.playerNumber,
       displayName:  me.displayName,
       score:        me.score,
-      streakCount:  me.streakCount,
       coinBalance:  me.coinBalance,
     } : null;
 

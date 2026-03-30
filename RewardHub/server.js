@@ -12,12 +12,12 @@ const debugRoutes = require('./routes/debug');
 
 // Import models so Mongoose registers them before createCollection is called
 const User = require('./models/User');
-const UserStats = require('./models/UserStats');
 const UserOnboarding = require('./models/UserOnboarding');
 const UserGamePreferences = require('./models/UserGamePreferences');
-const GameSession = require('./models/GameSession');
-const UserProgress = require('./models/UserProgress');
+const DailyReward = require('./models/DailyReward');
+const Mission = require('./models/Mission');
 const GlobalConfig = require('./models/GlobalConfig');
+const dailyRewardsData = require('./data/dailyrewards.json');
 const missionsData = require('./data/missions.json');
 
 const app = express();
@@ -37,27 +37,29 @@ connectDB()
   .then(async () => {
     await Promise.all([
       User.createCollection(),
-      UserStats.createCollection(),
       UserOnboarding.createCollection(),
       UserGamePreferences.createCollection(),
-      GameSession.createCollection(),
-      UserProgress.createCollection(),
+      DailyReward.createCollection(),
+      Mission.createCollection(),
       GlobalConfig.createCollection(),
     ]);
 
-    // Sync mission definitions into globalconfig
-    await Promise.all(
-      missionsData.map(m =>
-        GlobalConfig.findOneAndUpdate(
-          { category: 'mission', key: m.mission_name },
-          { category: 'mission', key: m.mission_name, payload: m, updatedAt: new Date() },
-          { upsert: true }
-        )
-      )
-    );
-    const activeNames = missionsData.map(m => m.mission_name);
-    await GlobalConfig.deleteMany({ category: 'mission', key: { $nin: activeNames } });
-    await UserProgress.deleteMany({ mission_name: { $nin: activeNames } });
+    // Sync config into globalconfig as exactly two documents
+    await Promise.all([
+      GlobalConfig.findOneAndUpdate(
+        { category: 'config', key: 'daily_rewards' },
+        { category: 'config', key: 'daily_rewards', payload: dailyRewardsData, updatedAt: new Date() },
+        { upsert: true }
+      ),
+      GlobalConfig.findOneAndUpdate(
+        { category: 'config', key: 'missions' },
+        { category: 'config', key: 'missions', payload: missionsData, updatedAt: new Date() },
+        { upsert: true }
+      ),
+    ]);
+
+    // Remove old per-mission documents left from previous schema
+    await GlobalConfig.deleteMany({ category: 'mission' });
 
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })

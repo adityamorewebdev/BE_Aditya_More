@@ -1,4 +1,4 @@
-﻿const { MongoClient } = require('mongodb');
+const { MongoClient } = require('mongodb');
 const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
@@ -13,45 +13,30 @@ function loadJson(filePath) {
   return JSON.parse(raw);
 }
 
-function toDateFields(doc, fields) {
-  const out = { ...doc };
-  for (const f of fields) {
-    if (out[f]) out[f] = new Date(out[f]);
-  }
-  return out;
-}
-
 async function run() {
   const client = new MongoClient(MONGO_URI);
   await client.connect();
   const db = client.db(DB_NAME);
 
-  const missionsPath = path.join(__dirname, 'data', 'missions.json');
-  const dailyRewardsPath = path.join(__dirname, 'data', 'dailyrewards.json');
+  const missions = loadJson(path.join(__dirname, 'data', 'missions.json'));
+  const dailyRewards = loadJson(path.join(__dirname, 'data', 'dailyrewards.json'));
 
-  const missions = loadJson(missionsPath);
-  const dailyrewardsRaw = loadJson(dailyRewardsPath);
-  const dailyrewards = dailyrewardsRaw.map((d) =>
-    toDateFields(d, ['claimedAt', 'createdAt', 'updatedAt'])
-  );
-
-  // Seed missions into globalconfig
-  if (missions.length) {
-    await db.collection('globalconfig').deleteMany({ category: 'mission' });
-    await db.collection('globalconfig').insertMany(
-      missions.map(m => ({
-        category: 'mission',
-        key: m.mission_name,
-        payload: m,
-        updatedAt: new Date(),
-      }))
-    );
-  }
-
-  if (dailyrewards.length) {
-    await db.collection('dailyrewards').deleteMany({});
-    await db.collection('dailyrewards').insertMany(dailyrewards);
-  }
+  // Seed globalconfig with exactly two documents: one for daily_rewards, one for missions
+  await db.collection('globalconfig').deleteMany({ category: 'config' });
+  await db.collection('globalconfig').insertMany([
+    {
+      category: 'config',
+      key: 'daily_rewards',
+      payload: dailyRewards,
+      updatedAt: new Date(),
+    },
+    {
+      category: 'config',
+      key: 'missions',
+      payload: missions,
+      updatedAt: new Date(),
+    },
+  ]);
 
   await client.close();
   console.log('Seed complete');

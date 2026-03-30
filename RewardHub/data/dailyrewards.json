@@ -1,11 +1,12 @@
-[
-  {
-    "email": "akash@gmail.com",
-    "day": 1,
-    "reward": 25,
-    "claimedAt": "2026-03-09T06:08:31.361Z",
-    "status": "claimed",
-    "createdAt": "2026-03-09T06:08:31.377Z",
-    "updatedAt": "2026-03-09T06:08:31.377Z"
-  }
-]
+{
+  "type": "daily_rewards",
+  "rewards": [
+    { "day": 1, "reward": 10 },
+    { "day": 2, "reward": 20 },
+    { "day": 3, "reward": 30 },
+    { "day": 4, "reward": 40 },
+    { "day": 5, "reward": 50 },
+    { "day": 6, "reward": 75 },
+    { "day": 7, "reward": 100 }
+  ]
+}
